@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>加強時段預約</title>
+<style>
+  :root {
+    --brand: #3f6fb0;
+    --brand-dark: #274c7c;
+    --bg: #eef3fa;
+    --card: #ffffff;
+    --border: #c9d9ec;
+    --text: #22314a;
+    --muted: #5b6b82;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Microsoft JhengHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 16px;
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 20px;
+    margin: 8px 0 4px;
+    color: var(--brand-dark);
+  }
+  .sub {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 16px;
+  }
+  .day {
+    margin-bottom: 18px;
+  }
+  .day-title {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: var(--brand-dark);
+  }
+  .holiday-badge {
+    display: inline-block;
+    background: #eee;
+    color: #888;
+    font-size: 12px;
+    padding: 2px 8px;
+    border-radius: 10px;
+    margin-left: 6px;
+  }
+  .slot-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+  }
+  .slot-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .slot-name {
+    font-size: 14px;
+    font-weight: 600;
+  }
+  .slot-time {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .count-badge {
+    font-size: 12px;
+    color: var(--brand);
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .form-row {
+    display: flex;
+    gap: 8px;
+  }
+  input[type=text] {
+    flex: 1;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+  }
+  button {
+    background: var(--brand);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: 600;
+  }
+  button:disabled { background: #ccc; }
+  .msg {
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .msg.ok { color: #2a7a2a; }
+  .msg.err { color: #b5301d; }
+  .closed-note {
+    font-size: 13px;
+    color: #999;
+    padding: 8px 0;
+  }
+  .loading, .empty {
+    font-size: 13px;
+    color: var(--muted);
+    padding: 20px 0;
+    text-align: center;
+  }
+  .class-select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    margin-bottom: 16px;
+    background: #fff;
+    color: var(--text);
+  }
+</style>
+</head>
+<body>
+
+<div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+  <img src="./logo.jpg" alt="金牌躍騰內壢校" style="width:44px;height:44px;border-radius:10px;object-fit:cover;flex-shrink:0;">
+  <h1 id="titleEl" onclick="handleTitleTap()" style="margin:0;">本週加強時段預約</h1>
+</div>
+<p class="sub">請選擇班級，輸入學生姓名並送出即完成預約</p>
+
+<select id="classSelect" class="class-select" style="display:none;"></select>
+
+<div id="app">
+  <div class="loading">載入中...</div>
+</div>
+
+<script>
+// 部署 Apps Script 網頁應用程式後，把網址貼在這裡
+const API_URL = 'https://script.google.com/macros/s/AKfycbzBn5rolCJezfaB3r12ImHdcOHoeduQs3YOd5X-YPkpluTX9u-Ts61W3_ugbwdlJSJu/exec';
+
+const WEEKDAY_NAMES = ['', '週一', '週二', '週三', '週四', '週五', '週六', '週日'];
+
+let currentClass = null;
+let tapCount = 0;
+let tapTimer = null;
+let isAdmin = false;
+
+function handleTitleTap() {
+  tapCount++;
+  if (tapTimer) clearTimeout(tapTimer);
+  tapTimer = setTimeout(function () { tapCount = 0; }, 2000);
+  if (tapCount >= 5) {
+    isAdmin = !isAdmin;
+    tapCount = 0;
+    loadData();
+  }
+}
+
+function loadData() {
+  const url = currentClass ? API_URL + '?className=' + encodeURIComponent(currentClass) : API_URL;
+  fetch(url)
+    .then(function (res) { return res.json(); })
+    .then(function (data) {
+      setupClassSelect(data.classes);
+      renderDays(data.days);
+    })
+    .catch(function () {
+      document.getElementById('app').innerHTML = '<div class="empty">載入失敗，請稍後再試</div>';
+    });
+}
+
+function setupClassSelect(classes) {
+  const select = document.getElementById('classSelect');
+  if (!classes || classes.length === 0) return;
+
+  if (!currentClass) {
+    currentClass = classes[0];
+  }
+
+  select.innerHTML = '';
+  classes.forEach(function (c) {
+    const opt = document.createElement('option');
+    opt.value = c;
+    opt.textContent = c;
+    if (c === currentClass) opt.selected = true;
+    select.appendChild(opt);
+  });
+  select.style.display = classes.length > 1 ? 'block' : 'none';
+
+  select.onchange = function () {
+    currentClass = select.value;
+    loadData();
+  };
+}
+
+function renderDays(days) {
+  const app = document.getElementById('app');
+  app.innerHTML = '';
+
+  const daysWithSlots = days.filter(function (d) { return d.slots.length > 0; });
+
+  if (daysWithSlots.length === 0) {
+    app.innerHTML = '<div class="empty">本週目前沒有開放的時段</div>';
+    return;
+  }
+
+  daysWithSlots.forEach(function (day) {
+    const dayDiv = document.createElement('div');
+    dayDiv.className = 'day';
+
+    const title = document.createElement('div');
+    title.className = 'day-title';
+    title.textContent = WEEKDAY_NAMES[day.weekday] + '（' + day.date + '）';
+    if (day.closed) {
+      const badge = document.createElement('span');
+      badge.className = 'holiday-badge';
+      badge.textContent = '公休';
+      title.appendChild(badge);
+    }
+    dayDiv.appendChild(title);
+
+    if (day.closed) {
+      const note = document.createElement('div');
+      note.className = 'closed-note';
+      note.textContent = '這天公休，暫不開放預約';
+      dayDiv.appendChild(note);
+    } else {
+      day.slots.forEach(function (slot) {
+        dayDiv.appendChild(renderSlotCard(day.date, slot));
+      });
+    }
+
+    app.appendChild(dayDiv);
+  });
+}
+
+function renderSlotCard(date, slot) {
+  const card = document.createElement('div');
+  card.className = 'slot-card';
+
+  const row = document.createElement('div');
+  row.className = 'slot-row';
+  row.innerHTML =
+    '<div><div class="slot-name">' + slot.subject + '　' + slot.name + '</div>' +
+    '<div class="slot-time">' + slot.time + '</div></div>' +
+    '<div class="count-badge">目前 ' + slot.count + ' 人</div>';
+  card.appendChild(row);
+
+  if (isAdmin) {
+    const list = document.createElement('div');
+    list.style.fontSize = '13px';
+    list.style.color = 'var(--text)';
+    list.style.marginTop = '6px';
+    list.style.paddingTop = '6px';
+    list.style.borderTop = '1px solid var(--border)';
+    list.textContent = slot.students.length > 0 ? slot.students.join('、') : '目前沒有人預約';
+    card.appendChild(list);
+  }
+
+  const formRow = document.createElement('div');
+  formRow.className = 'form-row';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = '學生姓名';
+
+  const btn = document.createElement('button');
+  btn.textContent = '我要預約';
+
+  const msg = document.createElement('div');
+  msg.className = 'msg';
+
+  btn.addEventListener('click', function () {
+    const name = input.value.trim();
+    if (!name) {
+      msg.className = 'msg err';
+      msg.textContent = '請輸入學生姓名';
+      return;
+    }
+    btn.disabled = true;
+    msg.className = 'msg';
+    msg.textContent = '送出中...';
+
+    fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ date: date, className: currentClass, slotName: slot.name, student: name })
+    })
+      .then(function (res) { return res.json(); })
+      .then(function (result) {
+        btn.disabled = false;
+        if (result.success) {
+          msg.className = 'msg ok';
+          msg.textContent = '已完成預約';
+          input.value = '';
+          loadData();
+        } else {
+          msg.className = 'msg err';
+          msg.textContent = result.error || '預約失敗，請稍後再試';
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        msg.className = 'msg err';
+        msg.textContent = '網路錯誤，請稍後再試';
+      });
+  });
+
+  formRow.appendChild(input);
+  formRow.appendChild(btn);
+  card.appendChild(formRow);
+  card.appendChild(msg);
+
+  return card;
+}
+
+loadData();
+</script>
+
+</body>
+</html>
